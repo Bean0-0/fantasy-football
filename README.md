@@ -43,3 +43,24 @@ python src/league.py scoreboard
 
 - Never commit `.env` or `token.json` (already in `.gitignore`).
 - Yahoo game key changes each NFL season; set `GAME_KEY` in `.env`.
+
+## Draft Assistant (userscript)
+
+Install Tampermonkey, then create script from
+`userscript/fantasy-draft-assistant.user.js`.
+
+Board data loads automatically via `@require` from local
+`userscript/board.js` — no copy-paste on refresh. One-time setup:
+
+1. Chrome `chrome://extensions` → Tampermonkey → enable **Allow access to file URLs**
+2. Tampermonkey dashboard → Settings → Config mode: **Advanced**
+3. Script editor → Settings tab → **External scripts update interval: Always**
+
+Refresh board with latest projections/ADP (run draft morning):
+
+```bash
+python3 src/build_board.py
+```
+
+Then just reload the draft page. Board ranked by VORP from Sleeper 2026
+projections, Avail% uses live half-PPR ADP.
