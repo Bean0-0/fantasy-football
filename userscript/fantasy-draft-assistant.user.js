@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yahoo Fantasy Draft Assistant — MFL
 // @namespace    https://github.com/Bean0-0/fantasy-football
-// @version      0.4.0
+// @version      0.5.0
 // @description  Live draft assistant tuned for MFL league: 10-team, 0.5 PPR, snake draft, 16 rounds
 // @match        https://football.fantasysports.yahoo.com/*
 // @grant        none
@@ -252,6 +252,42 @@
     document.addEventListener("mousemove", move);
     document.addEventListener("mouseup", up);
   });
+
+  /* ================= AUTO-DETECT =================
+   * Scan draft grid for pick cells ("3.7 Player Name"). Snake math
+   * decides if pick was mine (needs slot set). Manual buttons = override.
+   */
+  const norm = (s) =>
+    s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+(jr|sr|ii|iii|iv|v)$/,"").trim();
+  const nameMap = new Map(BOARD.map((p) => [norm(p[1]), p[1]]));
+
+  function autoDetect() {
+    if (!mySlot) return;
+    const mine = new Set(myOverallPicks(mySlot));
+    let changed = false;
+    document.querySelectorAll("div, td, li, span").forEach((el) => {
+      if (el.children.length > 2) return; // leaf-ish nodes only
+      const t = (el.textContent || "").trim();
+      if (t.length > 80) return;
+      const m = t.match(/^(\d{1,2})\.(\d{1,2})\s+(.+)/);
+      if (!m) return;
+      const overall = (parseInt(m[1], 10) - 1) * TEAMS + parseInt(m[2], 10);
+      const body = norm(m[3]);
+      for (const [n, full] of nameMap) {
+        if (body.includes(n) && !drafted.has(full)) {
+          drafted.add(full);
+          if (mine.has(overall)) myPicks.add(full);
+          changed = true;
+          break;
+        }
+      }
+    });
+    if (changed) {
+      save();
+      render();
+    }
+  }
+  setInterval(autoDetect, 2000);
 
   render();
 })();
