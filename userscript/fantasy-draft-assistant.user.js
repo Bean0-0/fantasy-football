@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         Yahoo Fantasy Draft Assistant — MFL
 // @namespace    https://github.com/Bean0-0/fantasy-football
-// @version      0.6.0
+// @version      0.6.1
 // @description  Live draft assistant tuned for MFL league: 10-team, 0.5 PPR, snake draft, 16 rounds
 // @match        https://football.fantasysports.yahoo.com/*
+// @updateURL    https://raw.githubusercontent.com/Bean0-0/fantasy-football/master/userscript/fantasy-draft-assistant.user.js
+// @downloadURL  https://raw.githubusercontent.com/Bean0-0/fantasy-football/master/userscript/fantasy-draft-assistant.user.js
 // @grant        none
 // @run-at       document-idle
 // @require      https://raw.githubusercontent.com/Bean0-0/fantasy-football/master/userscript/board.js
