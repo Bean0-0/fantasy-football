@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yahoo Fantasy Draft Assistant — MFL
 // @namespace    https://github.com/Bean0-0/fantasy-football
-// @version      0.5.0
+// @version      0.6.0
 // @description  Live draft assistant tuned for MFL league: 10-team, 0.5 PPR, snake draft, 16 rounds
 // @match        https://football.fantasysports.yahoo.com/*
 // @grant        none
@@ -254,40 +254,119 @@
   });
 
   /* ================= AUTO-DETECT =================
-   * Scan draft grid for pick cells ("3.7 Player Name"). Snake math
-   * decides if pick was mine (needs slot set). Manual buttons = override.
+   * New Yahoo draft client. Status bar has "Round R, Pick N" and
+   * "Last: G. Pickens (WR · Dal) <ManagerName>". Poll and match.
    */
-  const norm = (s) =>
-    s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+(jr|sr|ii|iii|iv|v)$/,"").trim();
-  const nameMap = new Map(BOARD.map((p) => [norm(p[1]), p[1]]));
+  const normTok = (s) => s.toLowerCase().replace(/[^a-z ]/g, "").trim();
+  const POS_ALIAS = { DST: "DEF" };
+
+  // match Yahoo short name ("G. Pickens", "WR", "Dal") to board row
+  function matchPlayer(short, pos, team) {
+    pos = POS_ALIAS[pos] || pos;
+    team = team.toUpperCase();
+    const m = normTok(short).match(/^([a-z])\s+(.+)$/);
+    if (!m) return null;
+    const [, initial, rest] = m;
+    const restToks = rest.split(/\s+/);
+    for (const p of BOARD) {
+      const [, fullName, pPos, pTeam] = p;
+      if (drafted.has(fullName)) continue;
+      if (pPos !== pos || pTeam.toUpperCase() !== team) continue;
+      const toks = normTok(fullName).split(/\s+/);
+      if (pos === "DEF") return fullName; // team+pos enough for defenses
+      if (!toks[0].startsWith(initial)) continue;
+      const tail = toks.slice(-restToks.length).join(" ");
+      if (tail === restToks.join(" ")) return fullName;
+    }
+    return null;
+  }
+
+  const picksLog = []; // {overall, short, manager, mine}
+  let beepedFor = 0;
+
+  function beep() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = 880; g.gain.value = 0.15;
+      o.start();
+      setTimeout(() => { o.frequency.value = 1174; }, 150);
+      setTimeout(() => { o.stop(); ctx.close(); }, 400);
+    } catch (e) { /* audio blocked until user interaction */ }
+  }
 
   function autoDetect() {
-    if (!mySlot) return;
-    const mine = new Set(myOverallPicks(mySlot));
+    // current overall pick: "Round 2, Pick 26"
+    let curOverall = null, upIn = null;
+    for (const sp of document.querySelectorAll("span")) {
+      const t = sp.textContent || "";
+      const rm = t.match(/Round\s+(\d+),\s+Pick\s+(\d+)/);
+      if (rm) { curOverall = parseInt(rm[2], 10); }
+      const um = t.match(/You're up in (\d+) Pick/i);
+      if (um) { upIn = parseInt(um[1], 10); }
+    }
+
+    // "Last:" label -> next spans: name, (POS · Team); manager name follows
     let changed = false;
-    document.querySelectorAll("div, td, li, span").forEach((el) => {
-      if (el.children.length > 2) return; // leaf-ish nodes only
-      const t = (el.textContent || "").trim();
-      if (t.length > 80) return;
-      const m = t.match(/^(\d{1,2})\.(\d{1,2})\s+(.+)/);
-      if (!m) return;
-      const overall = (parseInt(m[1], 10) - 1) * TEAMS + parseInt(m[2], 10);
-      const body = norm(m[3]);
-      for (const [n, full] of nameMap) {
-        if (body.includes(n) && !drafted.has(full)) {
-          drafted.add(full);
-          if (mine.has(overall)) myPicks.add(full);
-          changed = true;
-          break;
-        }
+    for (const sp of document.querySelectorAll("span")) {
+      if ((sp.textContent || "").trim() !== "Last:") continue;
+      const nameEl = sp.nextElementSibling;
+      const metaEl = nameEl && nameEl.nextElementSibling;
+      if (!nameEl || !metaEl) break;
+      const short = (nameEl.textContent || "").trim();
+      const mm = (metaEl.textContent || "").match(/\(([A-Z]+)\s*[·\-]\s*([A-Za-z]+)\)/);
+      if (!short || !mm) break;
+      const managerEl = sp.closest("div")?.parentElement?.querySelector("span:last-child");
+      const manager = managerEl ? managerEl.textContent.trim() : "?";
+
+      const full = matchPlayer(short, mm[1], mm[2]);
+      if (full && !drafted.has(full)) {
+        const lastOverall = curOverall ? curOverall - 1 : drafted.size + 1;
+        const mine = mySlot && myOverallPicks(mySlot).includes(lastOverall);
+        drafted.add(full);
+        if (mine) myPicks.add(full);
+        picksLog.push({ overall: lastOverall, short: full, manager, mine });
+        changed = true;
       }
-    });
+      break;
+    }
+
+    // my-turn alarm
+    if (mySlot && curOverall && myOverallPicks(mySlot).includes(curOverall) && beepedFor !== curOverall) {
+      beepedFor = curOverall;
+      beep();
+      panel.style.border = "2px solid #4caf50";
+      document.title = "\u{1F514} YOUR PICK — Yahoo Draft";
+    } else if (curOverall && beepedFor && beepedFor !== curOverall) {
+      panel.style.border = "1px solid #444";
+    }
+
     if (changed) {
       save();
       render();
     }
+    renderRecent(upIn);
   }
-  setInterval(autoDetect, 2000);
+
+  function renderRecent(upIn) {
+    let el = panel.querySelector("#fda-recent");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "fda-recent";
+      panel.querySelector("#fda-body").prepend(el);
+    }
+    const last = picksLog.slice(-4).reverse();
+    el.innerHTML =
+      (upIn != null ? `<div style="color:#8cf;font-size:11px;padding:2px 4px">You're up in ${upIn} pick${upIn === 1 ? "" : "s"}</div>` : "") +
+      last.map((p) =>
+        `<div style="font-size:11px;color:${p.mine ? "#6f6" : "#9ab"};padding:1px 4px">` +
+        `#${p.overall} ${p.short} → ${p.manager}</div>`
+      ).join("");
+  }
+
+  setInterval(autoDetect, 1500);
 
   render();
 })();
